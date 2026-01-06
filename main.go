@@ -24,10 +24,18 @@ func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	hits := cfg.fileserverHits.Load()
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Hits: %d", hits)))
+
+	html := fmt.Sprintf(`<html>
+  <body>
+    <h1>Welcome, Chirpy Admin</h1>
+    <p>Chirpy has been visited %d times!</p>
+  </body>
+</html>`, hits)
+
+	w.Write([]byte(html))
 }
 
 func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
@@ -59,11 +67,11 @@ func main() {
 	mux := http.NewServeMux()
 
 	// readiness
-	mux.HandleFunc("/healthz", handlerHealthz)
+	mux.HandleFunc("/api/healthz", handlerHealthz)
 
-	// metrics + reset
-	mux.HandleFunc("/metrics", apiCfg.handlerMetrics)
-	mux.HandleFunc("/reset", apiCfg.handlerReset)
+	// metrics + reset, swapped to admin for ch3 part 4
+	mux.HandleFunc("/admin/metrics", apiCfg.handlerMetrics)
+	mux.HandleFunc("/admin/reset", apiCfg.handlerReset)
 
 	// app files served from /app/
 	appFS := http.FileServer(http.Dir("."))
