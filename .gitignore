@@ -1,5 +1,19 @@
+# Secwrets
 .env
 *.env
 *.secret
 *.key
-/internal
+
+# Local config
+.gatorconfig.json
+
+# Build output
+out/
+bin/
+dist/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
