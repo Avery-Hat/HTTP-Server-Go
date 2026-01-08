@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Avery-Hat/HTTP-Server-Go/internal/auth"
 	"github.com/Avery-Hat/HTTP-Server-Go/internal/database"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -39,7 +40,8 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) 
 	}
 
 	type params struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -51,7 +53,18 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	user, err := cfg.db.CreateUser(r.Context(), p.Email)
+	hashedPassword, err := auth.HashPassword(p.Password)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"Something went wrong"}`))
+		return
+	}
+
+	user, err := cfg.db.CreateUser(r.Context(), database.CreateUserParams{
+		Email:          p.Email,
+		HashedPassword: hashedPassword,
+	})
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -84,7 +97,6 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	w.Write(dat)
-
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -320,6 +332,67 @@ func (cfg *apiConfig) handlerGetChirpByID(w http.ResponseWriter, r *http.Request
 	w.Write(dat)
 }
 
+func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	type params struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	p := params{}
+	if err := decoder.Decode(&p); err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("Incorrect email or password"))
+		return
+	}
+
+	user, err := cfg.db.GetUserByEmail(r.Context(), p.Email)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("Incorrect email or password"))
+		return
+	}
+
+	ok, err := auth.CheckPasswordHash(p.Password, user.HashedPassword)
+	if err != nil || !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("Incorrect email or password"))
+		return
+	}
+
+	// respond without password
+	type userResp struct {
+		ID        string    `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Email     string    `json:"email"`
+	}
+
+	resp := userResp{
+		ID:        user.ID.String(),
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	}
+
+	dat, err := json.Marshal(resp)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"Something went wrong"}`))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(dat)
+}
+
 func main() {
 	godotenv.Load()
 
@@ -337,6 +410,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/login", apiCfg.handlerLogin)
 
 	mux.HandleFunc("/api/chirps/{chirpID}", apiCfg.handlerGetChirpByID)
 
